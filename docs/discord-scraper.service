@@ -1,0 +1,15 @@
+[Unit]
+Description=Discord Channel Status Scraper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/nikketryhard/dev/ollie-scraper
+ExecStart=/home/nikketryhard/dev/ollie-scraper/venv/bin/python3 /home/nikketryhard/dev/ollie-scraper/monitor.py
+Restart=on-failure
+RestartSec=10
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target

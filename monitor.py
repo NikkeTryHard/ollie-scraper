@@ -30,7 +30,7 @@ async def heartbeat(ws, interval):
 async def listen():
     global last_channel_name
 
-    async with websockets.connect(GATEWAY_URL) as ws:
+    async with websockets.connect(GATEWAY_URL, max_size=10_000_000) as ws:
         # Receive Hello (op 10)
         hello = json.loads(await ws.recv())
         heartbeat_interval = hello["d"]["heartbeat_interval"]

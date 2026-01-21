@@ -5,3 +5,8 @@ venv/
 *.pid
 *.log
 .worktrees/
+
+
+# Added by cargo
+
+/target

@@ -299,6 +299,7 @@ pub async fn websocket_loop(
 /// This function:
 /// 1. Fetches the initial channel name
 /// 2. Runs both polling and WebSocket loops concurrently
+/// 3. Handles graceful shutdown on Ctrl+C
 pub async fn run_monitor(token: String, channel_id: String, sound_path: String) {
     let notifier = Arc::new(Notifier::new(sound_path));
     let last_name: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -328,11 +329,22 @@ pub async fn run_monitor(token: String, channel_id: String, sound_path: String) 
     let ws_last_name = Arc::clone(&last_name);
 
     println!("Starting dual-mode monitoring (REST polling + WebSocket)...");
+    println!("Press Ctrl+C to stop.");
 
-    tokio::join!(
-        poll_loop(poll_token, poll_channel_id, POLL_INTERVAL_SECS, poll_notifier, poll_last_name),
-        websocket_loop(ws_token, ws_channel_id, ws_notifier, ws_last_name)
-    );
+    // Use tokio::select! to handle graceful shutdown
+    tokio::select! {
+        _ = poll_loop(poll_token, poll_channel_id, POLL_INTERVAL_SECS, poll_notifier, poll_last_name) => {
+            println!("Poll loop ended unexpectedly");
+        }
+        _ = websocket_loop(ws_token, ws_channel_id, ws_notifier, ws_last_name) => {
+            println!("WebSocket loop ended unexpectedly");
+        }
+        _ = tokio::signal::ctrl_c() => {
+            println!("\nReceived Ctrl+C, shutting down gracefully...");
+        }
+    }
+
+    println!("Shutdown complete.");
 }
 
 #[cfg(test)]

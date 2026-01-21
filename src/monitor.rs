@@ -155,17 +155,21 @@ pub async fn websocket_loop(
                 let identify = GatewayMessage {
                     op: 2,
                     t: None,
-                    d: Some(serde_json::to_value(IdentifyPayload {
-                        token: token.clone(),
-                        properties: IdentifyProperties {
-                            os: "linux".to_string(),
-                            browser: "Chrome".to_string(),
-                            device: "Chrome".to_string(),
-                        },
-                    }).unwrap()),
+                    d: Some(
+                        serde_json::to_value(IdentifyPayload {
+                            token: token.clone(),
+                            properties: IdentifyProperties {
+                                os: "linux".to_string(),
+                                browser: "Chrome".to_string(),
+                                device: "Chrome".to_string(),
+                            },
+                        })
+                        .expect("Failed to serialize identify properties"),
+                    ),
                 };
 
-                let identify_json = serde_json::to_string(&identify).unwrap();
+                let identify_json = serde_json::to_string(&identify)
+                    .expect("Failed to serialize identify payload");
                 if let Err(e) = write.send(Message::Text(identify_json)).await {
                     eprintln!("[WS] Failed to send Identify: {}", e);
                     continue;
@@ -200,7 +204,8 @@ pub async fn websocket_loop(
                                 t: None,
                                 d: None,
                             };
-                            let heartbeat_json = serde_json::to_string(&heartbeat).unwrap();
+                            let heartbeat_json = serde_json::to_string(&heartbeat)
+                                .expect("Failed to serialize heartbeat payload");
                             if let Err(e) = write.send(Message::Text(heartbeat_json)).await {
                                 eprintln!("[WS] Failed to send heartbeat: {}", e);
                                 break;

@@ -13,8 +13,30 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const PID_FILE: &str = "scraper.pid";
-const DEFAULT_SOUND_PATH: &str =
-    "/home/nikketryhard/dev/ollie-scraper/.worktrees/rust-rewrite/boom.mp3";
+
+/// Get the default sound path by searching relative to the executable.
+fn get_default_sound_path() -> String {
+    // Try to find boom.mp3 relative to the executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let sound_path = exe_dir.join("boom.mp3");
+            if sound_path.exists() {
+                return sound_path.to_string_lossy().to_string();
+            }
+            // Also check parent directory (for target/release/ollie-scraper)
+            if let Some(parent) = exe_dir.parent() {
+                if let Some(grandparent) = parent.parent() {
+                    let sound_path = grandparent.join("boom.mp3");
+                    if sound_path.exists() {
+                        return sound_path.to_string_lossy().to_string();
+                    }
+                }
+            }
+        }
+    }
+    // Fallback to current directory
+    "boom.mp3".to_string()
+}
 
 #[derive(Parser)]
 #[command(name = "ollie-scraper")]
@@ -92,7 +114,7 @@ fn load_config() -> Result<(String, String, String), String> {
 
     // Use default sound path if not specified
     let sound_path =
-        std::env::var("SOUND_PATH").unwrap_or_else(|_| DEFAULT_SOUND_PATH.to_string());
+        std::env::var("SOUND_PATH").unwrap_or_else(|_| get_default_sound_path());
 
     Ok((token, channel_id, sound_path))
 }
@@ -150,7 +172,6 @@ fn stop_daemon() -> Result<(), String> {
     // Send SIGTERM
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt;
         let status = Command::new("kill")
             .args(["-TERM", &pid.to_string()])
             .status()
@@ -240,7 +261,7 @@ fn test_notification() {
     println!("Testing notification system...");
     println!();
 
-    let sound_path = std::env::var("SOUND_PATH").unwrap_or_else(|_| DEFAULT_SOUND_PATH.to_string());
+    let sound_path = std::env::var("SOUND_PATH").unwrap_or_else(|_| get_default_sound_path());
 
     // Check if sound file exists
     if !PathBuf::from(&sound_path).exists() {

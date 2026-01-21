@@ -142,12 +142,21 @@ fn run_daemon() -> Result<(), String> {
     // Get the current executable path
     let exe_path = std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
 
+    // Get log file path (same directory as executable)
+    let log_path = exe_path.parent()
+        .map(|p| p.join("scraper.log"))
+        .unwrap_or_else(|| PathBuf::from("scraper.log"));
+
+    // Open log file for writing
+    let log_file = fs::File::create(&log_path)
+        .map_err(|e| format!("Failed to create log file: {}", e))?;
+
     // Fork to background using nohup and disown pattern
     let child = Command::new(&exe_path)
         .args(["run"])
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
+        .stderr(std::process::Stdio::from(log_file))
         .spawn()
         .map_err(|e| format!("Failed to spawn daemon: {}", e))?;
 
@@ -155,10 +164,11 @@ fn run_daemon() -> Result<(), String> {
     write_pid(pid).map_err(|e| format!("Failed to write PID file: {}", e))?;
 
     println!("Daemon started with PID {}", pid);
+    println!("Log file: {:?}", log_path);
     println!("PID file: {:?}", get_pid_file_path());
 
-    Ok(())
-}
+    Ok(()
+)}
 
 /// Stop the running daemon.
 fn stop_daemon() -> Result<(), String> {
@@ -193,20 +203,37 @@ fn stop_daemon() -> Result<(), String> {
     Ok(())
 }
 
-/// Show the daemon status.
+/// Show the daemon status with verbose information.
 fn show_status() {
-    println!("=== ollie-scraper status ===");
+    println!("========================================");
+    println!("   OLLIE SCRAPER STATUS");
+    println!("========================================");
     println!();
 
     match read_pid() {
         Some(pid) => {
             if is_process_running(pid) {
-                println!("STATUS: running");
-                println!("PID:    {}", pid);
+                println!("STATUS:    RUNNING");
+                println!("PID:       {}", pid);
 
-                // Try to get process uptime from /proc
+                // Try to get process stats from /proc
                 #[cfg(unix)]
                 {
+                    // Memory usage from /proc/[pid]/status
+                    if let Ok(status) = fs::read_to_string(format!("/proc/{}/status", pid)) {
+                        for line in status.lines() {
+                            if line.starts_with("VmRSS:") {
+                                let parts: Vec<&str> = line.split_whitespace().collect();
+                                if parts.len() >= 2 {
+                                    if let Ok(kb) = parts[1].parse::<f64>() {
+                                        println!("MEMORY:    {:.1} MB", kb / 1024.0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // CPU usage (snapshot)
                     if let Ok(stat) = fs::read_to_string(format!("/proc/{}/stat", pid)) {
                         let parts: Vec<&str> = stat.split_whitespace().collect();
                         if parts.len() > 21 {
@@ -219,7 +246,6 @@ fn show_status() {
                                         .next()
                                         .and_then(|s| s.parse::<f64>().ok())
                                     {
-                                        // Clock ticks per second (usually 100)
                                         let ticks_per_sec = 100u64;
                                         let process_start_secs = starttime / ticks_per_sec;
                                         let process_uptime =
@@ -229,10 +255,7 @@ fn show_status() {
                                         let minutes = (process_uptime % 3600) / 60;
                                         let seconds = process_uptime % 60;
 
-                                        println!(
-                                            "UPTIME: {}h {}m {}s",
-                                            hours, minutes, seconds
-                                        );
+                                        println!("UPTIME:    {}h {}m {}s", hours, minutes, seconds);
                                     }
                                 }
                             }
@@ -240,18 +263,72 @@ fn show_status() {
                     }
                 }
 
+                // Try to read channel info from log file
                 println!();
-                println!("PID file: {:?}", get_pid_file_path());
+                println!("----------------------------------------");
+                println!("   CHANNEL INFO");
+                println!("----------------------------------------");
+
+                // Look for log file in same directory as executable
+                let log_path = get_pid_file_path().parent()
+                    .map(|p| p.join("scraper.log"))
+                    .unwrap_or_else(|| PathBuf::from("scraper.log"));
+
+                if let Ok(log_content) = fs::read_to_string(&log_path) {
+                    // Find current channel name
+                    for line in log_content.lines().rev() {
+                        if line.contains("Current channel name:") || line.contains("Monitoring channel:") {
+                            if let Some(name) = line.split('\'').nth(1) {
+                                println!("CHANNEL:   {}", name);
+                                break;
+                            }
+                        }
+                    }
+
+                    println!();
+                    println!("----------------------------------------");
+                    println!("   STATISTICS");
+                    println!("----------------------------------------");
+
+                    // Count events
+                    let ws_events = log_content.lines().filter(|l| l.contains("[WS]") && l.contains("changed")).count();
+                    let poll_events = log_content.lines().filter(|l| l.contains("[POLL]")).count();
+                    let heartbeats = log_content.lines().filter(|l| l.contains("Heartbeat ACK")).count();
+                    let alarms = log_content.lines().filter(|l| l.contains("ALARM") || l.contains("start_alarm")).count();
+
+                    println!("WebSocket Events:  {}", ws_events);
+                    println!("Poll Detections:   {}", poll_events);
+                    println!("Heartbeats:        {}", heartbeats);
+                    println!("Alarms Triggered:  {}", alarms);
+
+                    println!();
+                    println!("----------------------------------------");
+                    println!("   LAST 5 LOG ENTRIES");
+                    println!("----------------------------------------");
+
+                    let lines: Vec<&str> = log_content.lines().collect();
+                    let start = if lines.len() > 5 { lines.len() - 5 } else { 0 };
+                    for line in &lines[start..] {
+                        println!("{}", line);
+                    }
+                } else {
+                    println!("CHANNEL:   (no log file found)");
+                }
+
+                println!();
+                println!("========================================");
             } else {
-                println!("STATUS: stopped (stale PID file)");
-                println!("PID:    {} (not running)", pid);
+                println!("STATUS:    STOPPED (stale PID file)");
+                println!("PID:       {} (not running)", pid);
                 println!();
                 println!("Run 'ollie-scraper stop' to clean up the stale PID file.");
             }
         }
         None => {
-            println!("STATUS: stopped");
-            println!("PID:    -");
+            println!("STATUS:    STOPPED");
+            println!("PID:       -");
+            println!();
+            println!("========================================");
         }
     }
 }

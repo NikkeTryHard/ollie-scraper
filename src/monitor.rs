@@ -16,6 +16,29 @@ const DISCORD_API_BASE: &str = "https://discord.com/api/v9";
 const DISCORD_GATEWAY_URL: &str = "wss://gateway.discord.gg/?v=9&encoding=json";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+/// Check for channel name changes and notify if changed.
+///
+/// This helper extracts the common pattern used in both poll_loop and websocket_loop
+/// to avoid code duplication.
+async fn check_and_notify_change(
+    new_name: Option<String>,
+    last_name: &Arc<RwLock<Option<String>>>,
+    notifier: &Arc<Notifier>,
+    source: &str,
+) {
+    let last = last_name.read().await;
+    if *last != new_name {
+        drop(last);
+        let mut last_write = last_name.write().await;
+        *last_write = new_name.clone();
+        drop(last_write);
+        if let Some(ref name) = new_name {
+            println!("[{}] Channel name changed to: {}", source, name);
+            notifier.start_alarm(name).await;
+        }
+    }
+}
+
 /// Fetch channel name from Discord REST API.
 ///
 /// Returns `Ok(Some(name))` if the channel exists and has a name,
@@ -59,19 +82,7 @@ pub async fn poll_loop(
 
         match fetch_channel_name(&token, &channel_id).await {
             Ok(current_name) => {
-                let last = last_name.read().await;
-                if *last != current_name {
-                    drop(last); // Release read lock before acquiring write lock
-
-                    let mut last_write = last_name.write().await;
-                    *last_write = current_name.clone();
-                    drop(last_write);
-
-                    if let Some(ref name) = current_name {
-                        println!("[POLL] Channel name changed to: {}", name);
-                        notifier.start_alarm(name).await;
-                    }
-                }
+                check_and_notify_change(current_name, &last_name, &notifier, "POLL").await;
             }
             Err(e) => {
                 eprintln!("[POLL] Failed to fetch channel: {}", e);
@@ -224,19 +235,12 @@ pub async fn websocket_loop(
                                                     if let Some(d) = gateway_msg.d {
                                                         if let Ok(channel) = serde_json::from_value::<Channel>(d) {
                                                             if channel.id == channel_id_clone {
-                                                                let last = last_name_clone.read().await;
-                                                                if *last != channel.name {
-                                                                    drop(last);
-
-                                                                    let mut last_write = last_name_clone.write().await;
-                                                                    *last_write = channel.name.clone();
-                                                                    drop(last_write);
-
-                                                                    if let Some(ref name) = channel.name {
-                                                                        println!("[WS] Channel name changed to: {}", name);
-                                                                        notifier_clone.start_alarm(name).await;
-                                                                    }
-                                                                }
+                                                                check_and_notify_change(
+                                                                    channel.name,
+                                                                    &last_name_clone,
+                                                                    &notifier_clone,
+                                                                    "WS",
+                                                                ).await;
                                                             }
                                                         }
                                                     }

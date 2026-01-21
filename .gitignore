@@ -4,3 +4,9 @@ __pycache__/
 venv/
 *.pid
 *.log
+.worktrees/
+
+
+# Added by cargo
+
+/target

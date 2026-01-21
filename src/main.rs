@@ -276,13 +276,25 @@ fn show_status() {
 
                 if let Ok(log_content) = fs::read_to_string(&log_path) {
                     // Find current channel name
-                    for line in log_content.lines().rev() {
-                        if line.contains("Current channel name:") || line.contains("Monitoring channel:") {
-                            if let Some(name) = line.split('\'').nth(1) {
-                                println!("CHANNEL:   {}", name);
-                                break;
+                    let mut channel_found = false;
+                    for line in log_content.lines() {
+                        if line.contains("Initial channel name:") {
+                            // Parse: Initial channel name: Some("〖start-order-❌〗")
+                            if let Some(start) = line.find("Some(\"") {
+                                if let Some(end) = line.rfind("\")") {
+                                    let name = &line[start + 6..end];
+                                    println!("CHANNEL:   {}", name);
+                                    channel_found = true;
+                                }
+                            }
+                        } else if line.contains("Channel ID:") {
+                            if let Some(id) = line.split("Channel ID:").nth(1) {
+                                println!("CHANNEL ID: {}", id.trim());
                             }
                         }
+                    }
+                    if !channel_found {
+                        println!("CHANNEL:   (waiting for initial fetch)");
                     }
 
                     println!();

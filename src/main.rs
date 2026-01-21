@@ -257,7 +257,7 @@ fn show_status() {
 }
 
 /// Test the notification system.
-fn test_notification() {
+async fn test_notification() {
     println!("Testing notification system...");
     println!();
 
@@ -272,14 +272,14 @@ fn test_notification() {
 
     // Send notification
     println!("Sending test notification...");
-    match Notifier::send_notification("TEST-CHANNEL") {
+    match Notifier::send_notification("TEST-CHANNEL").await {
         Ok(_) => println!("  Notification sent successfully"),
         Err(e) => eprintln!("  Failed to send notification: {}", e),
     }
 
     // Play sound
     println!("Playing test sound: {}", sound_path);
-    match notifier.play_sound() {
+    match notifier.play_sound().await {
         Ok(_) => println!("  Sound played successfully"),
         Err(e) => eprintln!("  Failed to play sound: {}", e),
     }
@@ -326,7 +326,7 @@ async fn main() {
             show_status();
         }
         Commands::Test => {
-            test_notification();
+            test_notification().await;
         }
     }
 }

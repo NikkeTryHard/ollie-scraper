@@ -3,7 +3,7 @@
 //! This module provides desktop notifications via `notify-send` and audio alerts
 //! via `mpv` that loop until explicitly stopped.
 
-use std::process::Command;
+use tokio::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,17 +34,19 @@ impl Notifier {
     }
 
     /// Send a desktop notification using notify-send.
-    pub fn send_notification(channel_name: &str) -> std::io::Result<std::process::Output> {
+    pub async fn send_notification(channel_name: &str) -> std::io::Result<std::process::Output> {
         Command::new("notify-send")
             .args(["-u", "critical", "CHANNEL OPEN", &format!("Channel is now: {}", channel_name)])
             .output()
+            .await
     }
 
     /// Play the alarm sound once using mpv.
-    pub fn play_sound(&self) -> std::io::Result<std::process::Output> {
+    pub async fn play_sound(&self) -> std::io::Result<std::process::Output> {
         Command::new("mpv")
             .args(["--no-video", "--really-quiet", &self.sound_path])
             .output()
+            .await
     }
 
     /// Build the notify-send command arguments (for testing).
@@ -73,13 +75,13 @@ impl Notifier {
         self.running.store(true, Ordering::SeqCst);
 
         // Send notification once at the start
-        if let Err(e) = Self::send_notification(channel_name) {
+        if let Err(e) = Self::send_notification(channel_name).await {
             eprintln!("Failed to send notification: {}", e);
         }
 
         // Loop playing the sound until stopped
         while self.running.load(Ordering::SeqCst) {
-            if let Err(e) = self.play_sound() {
+            if let Err(e) = self.play_sound().await {
                 eprintln!("Failed to play sound: {}", e);
             }
 

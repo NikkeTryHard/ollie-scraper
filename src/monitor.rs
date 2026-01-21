@@ -15,6 +15,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 const DISCORD_API_BASE: &str = "https://discord.com/api/v9";
 const DISCORD_GATEWAY_URL: &str = "wss://gateway.discord.gg/?v=9&encoding=json";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const POLL_INTERVAL_SECS: f64 = 1.5;
+const RECONNECT_DELAY_SECS: u64 = 5;
 
 /// Check for channel name changes and notify if changed.
 ///
@@ -165,6 +167,7 @@ pub async fn websocket_loop(
                 // Send Identify (op 2)
                 let identify = GatewayMessage {
                     op: 2,
+                    s: None,
                     t: None,
                     d: Some(
                         serde_json::to_value(IdentifyPayload {
@@ -205,6 +208,7 @@ pub async fn websocket_loop(
                 let channel_id_clone = channel_id.clone();
                 let notifier_clone = Arc::clone(&notifier);
                 let last_name_clone = Arc::clone(&last_name);
+                let mut last_sequence: Option<u64> = None;
 
                 loop {
                     tokio::select! {
@@ -212,8 +216,9 @@ pub async fn websocket_loop(
                         Some(()) = heartbeat_rx.recv() => {
                             let heartbeat = GatewayMessage {
                                 op: 1,
+                                s: None,
                                 t: None,
-                                d: None,
+                                d: last_sequence.map(|s| serde_json::Value::Number(s.into())),
                             };
                             let heartbeat_json = serde_json::to_string(&heartbeat)
                                 .expect("Failed to serialize heartbeat payload");
@@ -228,6 +233,10 @@ pub async fn websocket_loop(
                             match msg {
                                 Some(Ok(Message::Text(text))) => {
                                     if let Ok(gateway_msg) = serde_json::from_str::<GatewayMessage>(&text) {
+                                        // Track sequence number
+                                        if let Some(seq) = gateway_msg.s {
+                                            last_sequence = Some(seq);
+                                        }
                                         // Handle CHANNEL_UPDATE (op 0, t: "CHANNEL_UPDATE")
                                         if gateway_msg.op == 0 {
                                             if let Some(ref t) = gateway_msg.t {
@@ -280,8 +289,8 @@ pub async fn websocket_loop(
         }
 
         // Wait before reconnecting
-        println!("[WS] Reconnecting in 5 seconds...");
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        println!("[WS] Reconnecting in {} seconds...", RECONNECT_DELAY_SECS);
+        tokio::time::sleep(Duration::from_secs(RECONNECT_DELAY_SECS)).await;
     }
 }
 
@@ -321,7 +330,7 @@ pub async fn run_monitor(token: String, channel_id: String, sound_path: String) 
     println!("Starting dual-mode monitoring (REST polling + WebSocket)...");
 
     tokio::join!(
-        poll_loop(poll_token, poll_channel_id, 1.5, poll_notifier, poll_last_name),
+        poll_loop(poll_token, poll_channel_id, POLL_INTERVAL_SECS, poll_notifier, poll_last_name),
         websocket_loop(ws_token, ws_channel_id, ws_notifier, ws_last_name)
     );
 }

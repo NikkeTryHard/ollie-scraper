@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct GatewayMessage {
     pub op: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub s: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub t: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub d: Option<serde_json::Value>,
